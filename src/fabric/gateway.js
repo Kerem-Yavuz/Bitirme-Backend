@@ -46,7 +46,7 @@ class FabricGateway {
             await this.gateway.connect(ccp, {
                 wallet,
                 identity: identity,
-                discovery: { enabled: true, asLocalhost: true }
+                discovery: { enabled: true, asLocalhost: false }
             });
 
             // Get network and contract
