@@ -1,0 +1,21 @@
+{
+    "name": "fabric-asset-app",
+    "version": "1.0.0",
+    "description": "Node.js application for Fabric SDK asset management",
+    "main": "src/app.js",
+    "scripts": {
+        "start": "node src/app.js",
+        "dev": "node src/app.js"
+    },
+    "dependencies": {
+        "cors": "^2.8.5",
+        "dotenv": "^16.3.1",
+        "express": "^4.18.2",
+        "fabric-network": "~2.2.0"
+    },
+    "engines": {
+        "node": ">=16"
+    },
+    "author": "Kerem",
+    "license": "Apache-2.0"
+}

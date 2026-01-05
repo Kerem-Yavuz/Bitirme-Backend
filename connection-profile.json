@@ -1,0 +1,101 @@
+{
+      "name": "fabric-network",
+      "version": "1.0.0",
+      "client": {
+        "organization": "AdminOrg",
+        "connection": {
+          "timeout": {
+            "peer": {
+              "endorser": "300"
+            }
+          }
+        }
+      },
+      "organizations": {
+        "AdminOrg": {
+          "mspid": "AdminOrgMSP",
+          "peers": ["peer0.AdminOrg.com"],
+          "certificateAuthorities": ["ca-admin-org"]
+        },
+        "StudentOrg": {
+          "mspid": "StudentOrgMSP",
+          "peers": ["peer0.StudentOrg.com"],
+          "certificateAuthorities": ["ca-student-org"]
+        }
+      },
+      "peers": {
+        "peer0.AdminOrg.com": {
+          "url": "grpcs://svc-admin-peer.fabric.svc.cluster.local:7051",
+          "tlsCACerts": {
+            "pem": "-----BEGIN CERTIFICATE-----\n<ADMIN_PEER_TLS_CA_CERT>\n-----END CERTIFICATE-----\n"
+          },
+          "grpcOptions": {
+            "ssl-target-name-override": "peer0.AdminOrg.com",
+            "hostnameOverride": "peer0.AdminOrg.com"
+          }
+        },
+        "peer0.StudentOrg.com": {
+          "url": "grpcs://svc-student-peer.fabric.svc.cluster.local:7051",
+          "tlsCACerts": {
+            "pem": "-----BEGIN CERTIFICATE-----\n<STUDENT_PEER_TLS_CA_CERT>\n-----END CERTIFICATE-----\n"
+          },
+          "grpcOptions": {
+            "ssl-target-name-override": "peer0.StudentOrg.com",
+            "hostnameOverride": "peer0.StudentOrg.com"
+          }
+        }
+      },
+      "certificateAuthorities": {
+        "ca-admin-org": {
+          "url": "https://svc-ca-admin-org.fabric.svc.cluster.local:7054",
+          "caName": "ca-admin-org",
+          "tlsCACerts": {
+            "pem": ["-----BEGIN CERTIFICATE-----\n<CA_ADMIN_TLS_CERT>\n-----END CERTIFICATE-----\n"]
+          },
+          "httpOptions": {
+            "verify": false
+          }
+        },
+        "ca-student-org": {
+          "url": "https://svc-ca-student-org.fabric.svc.cluster.local:7054",
+          "caName": "ca-student-org",
+          "tlsCACerts": {
+            "pem": ["-----BEGIN CERTIFICATE-----\n<CA_STUDENT_TLS_CERT>\n-----END CERTIFICATE-----\n"]
+          },
+          "httpOptions": {
+            "verify": false
+          }
+        }
+      },
+      "orderers": {
+        "orderer.OrdererOrg.com": {
+          "url": "grpcs://svc-orderer.fabric.svc.cluster.local:7050",
+          "tlsCACerts": {
+            "pem": "-----BEGIN CERTIFICATE-----\n<ORDERER_TLS_CA_CERT>\n-----END CERTIFICATE-----\n"
+          },
+          "grpcOptions": {
+            "ssl-target-name-override": "orderer.OrdererOrg.com",
+            "hostnameOverride": "orderer.OrdererOrg.com"
+          }
+        }
+      },
+      "channels": {
+        "mychannel": {
+          "orderers": ["orderer.OrdererOrg.com"],
+          "peers": {
+            "peer0.AdminOrg.com": {
+              "endorsingPeer": true,
+              "chaincodeQuery": true,
+              "ledgerQuery": true,
+              "eventSource": true
+            },
+            "peer0.StudentOrg.com": {
+              "endorsingPeer": true,
+              "chaincodeQuery": true,
+              "ledgerQuery": true,
+              "eventSource": true
+            }
+          }
+        }
+      }
+    }
