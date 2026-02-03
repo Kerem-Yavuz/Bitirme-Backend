@@ -1,17 +1,19 @@
 {
-    "name": "fabric-asset-app",
+    "name": "bitirme-backend",
     "version": "1.0.0",
-    "description": "Node.js application for Fabric SDK asset management",
-    "main": "src/app.js",
+    "description": "Node.js application",
+    "main": "index.js",
     "scripts": {
-        "start": "node src/app.js",
-        "dev": "node src/app.js"
+        "start": "node index.js",
+        "dev": "node index.js"
     },
     "dependencies": {
+        "cookie-parser": "^1.4.7",
         "cors": "^2.8.5",
         "dotenv": "^16.3.1",
         "express": "^4.18.2",
-        "fabric-network": "~2.2.0"
+        "jsonwebtoken": "^9.0.3",
+        "mysql2": "^3.12.0"
     },
     "engines": {
         "node": ">=16"
