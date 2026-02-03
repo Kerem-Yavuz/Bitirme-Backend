@@ -1,0 +1,181 @@
+[
+    {
+        "category": "General",
+        "endpoints": [
+            {
+                "method": "GET",
+                "path": "/",
+                "description": "Welcome message",
+                "access": "Public"
+            }
+        ]
+    },
+    {
+        "category": "Users",
+        "basePath": "/api/users",
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/login",
+                "description": "User login",
+                "access": "Public",
+                "body": {
+                    "usernameoremail": "string",
+                    "password": "string"
+                }
+            },
+            {
+                "method": "POST",
+                "path": "/logout",
+                "description": "User logout",
+                "access": "Authenticated"
+            },
+            {
+                "method": "POST",
+                "path": "/",
+                "description": "Create a new user",
+                "access": "Admin",
+                "body": {
+                    "password": "string (required)",
+                    "active": "boolean (optional, default true)",
+                    "fullName": "string",
+                    "phoneNo": "string",
+                    "email": "string",
+                    "departmentID": "integer"
+                }
+            },
+            {
+                "method": "GET",
+                "path": "/",
+                "description": "Get all users",
+                "access": "Admin"
+            },
+            {
+                "method": "GET",
+                "path": "/:id",
+                "description": "Get a single user by ID",
+                "access": "Authenticated (Admin or Self)"
+            }
+        ]
+    },
+    {
+        "category": "Departments",
+        "basePath": "/api/departments",
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/",
+                "description": "Create a new department",
+                "access": "Admin",
+                "body": {
+                    "departmentName": "string (required)"
+                }
+            },
+            {
+                "method": "GET",
+                "path": "/",
+                "description": "List all departments",
+                "access": "Authenticated"
+            },
+            {
+                "method": "GET",
+                "path": "/:id",
+                "description": "Get department details",
+                "access": "Authenticated"
+            },
+            {
+                "method": "PUT",
+                "path": "/:id",
+                "description": "Update department",
+                "access": "Admin",
+                "body": {
+                    "departmentName": "string"
+                }
+            },
+            {
+                "method": "DELETE",
+                "path": "/:id",
+                "description": "Delete department",
+                "access": "Admin"
+            }
+        ]
+    },
+    {
+        "category": "Lessons",
+        "basePath": "/api/lessons",
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/",
+                "description": "Create a new lesson",
+                "access": "Admin",
+                "body": {
+                    "lessonName": "string (required)",
+                    "lessonTeacherID": "integer",
+                    "departmentID": "integer",
+                    "semesterNo": "integer"
+                }
+            },
+            {
+                "method": "GET",
+                "path": "/",
+                "description": "List lessons (filtered by semester or department)",
+                "access": "Authenticated",
+                "query": {
+                    "semesterNo": "integer",
+                    "departmentID": "integer"
+                }
+            },
+            {
+                "method": "GET",
+                "path": "/:id",
+                "description": "Get lesson details",
+                "access": "Authenticated"
+            },
+            {
+                "method": "DELETE",
+                "path": "/:id",
+                "description": "Delete lesson",
+                "access": "Admin"
+            }
+        ]
+    },
+    {
+        "category": "Lesson Groups",
+        "basePath": "/api/lessonGroups",
+        "endpoints": [
+            {
+                "method": "POST",
+                "path": "/",
+                "description": "Create a lesson group",
+                "access": "Admin",
+                "body": {
+                    "lessonGroupName": "string (required)",
+                    "lessonID": "integer (required)",
+                    "maxNumber": "integer",
+                    "lessonDesc": "string",
+                    "hour": "string",
+                    "day": "string"
+                }
+            },
+            {
+                "method": "POST",
+                "path": "/register",
+                "description": "Register student for a lesson group",
+                "access": "Authenticated (Student)",
+                "body": {
+                    "lessonGroupID": "integer (required)"
+                }
+            },
+            {
+                "method": "GET",
+                "path": "/",
+                "description": "List lesson groups (optionally filtered by lessonID)",
+                "access": "Authenticated",
+                "query": {
+                    "lessonID": "integer"
+                }
+            }
+        ]
+    }
+]
