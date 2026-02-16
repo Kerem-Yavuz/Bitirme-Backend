@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const con = require("./models/db");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcrypt");
 const { ACCESS_JWT_SECRET, REFRESH_JWT_SECRET } = require("./models/constants");
 const { isAuthenticated, isHavePriv } = require("./functions/middleware");
 const { response } = require("./functions/utils");
@@ -18,10 +19,10 @@ router.post("/login", (req, res) => {
         SELECT u.userID, u.password, u.active, ud.email, ud.fullName 
         FROM users u 
         LEFT JOIN userDetails ud ON u.userID = ud.userID 
-        WHERE (ud.email = ? OR u.userID = ?) AND u.password = ?
+        WHERE (ud.email = ? OR u.userID = ?)
     `;
 
-    con.query(query, [usernameoremail, usernameoremail, password], (err, results) => {
+    con.query(query, [usernameoremail, usernameoremail], (err, results) => {
         if (err) return response(res, 500, false, err.message);
 
         if (results.length === 0) {
@@ -29,44 +30,50 @@ router.post("/login", (req, res) => {
         }
 
         const user = results[0];
-        if (!user.active) {
-            return response(res, 403, false, "Account is inactive.");
-        }
 
-        const accessToken = jwt.sign(
-            { id: user.userID, email: user.email, fullName: user.fullName },
-            ACCESS_JWT_SECRET,
-            { expiresIn: "15m" }
-        );
+        bcrypt.compare(password, user.password, (bcryptErr, isMatch) => {
+            if (bcryptErr) return response(res, 500, false, bcryptErr.message);
+            if (!isMatch) return response(res, 401, false, "Invalid credentials or user not found.");
 
-        const refreshToken = jwt.sign(
-            { id: user.userID },
-            REFRESH_JWT_SECRET,
-            { expiresIn: "7d" }
-        );
+            if (!user.active) {
+                return response(res, 403, false, "Account is inactive.");
+            }
 
-        // Store Refresh Token (Reset isRevoked)
-        const expiresAt = new Date();
-        expiresAt.setDate(expiresAt.getDate() + 7);
-        // source hardcoded 1
+            const accessToken = jwt.sign(
+                { id: user.userID, email: user.email, fullName: user.fullName },
+                ACCESS_JWT_SECRET,
+                { expiresIn: "15m" }
+            );
 
-        // Upsert Token and ensure isRevoked is false for new login
-        const insertTokenQuery = "INSERT INTO refresh_tokens (token, userID, expires_at, isRevoked) VALUES (?, ?, ?, 0) ON DUPLICATE KEY UPDATE token = VALUES(token), expires_at = VALUES(expires_at), isRevoked = 0";
+            const refreshToken = jwt.sign(
+                { id: user.userID },
+                REFRESH_JWT_SECRET,
+                { expiresIn: "7d" }
+            );
 
-        con.query(insertTokenQuery, [refreshToken, user.userID, expiresAt], (errToken) => {
-            if (errToken) return response(res, 500, false, "Session creation failed: " + errToken.message);
+            // Store Refresh Token (Reset isRevoked)
+            const expiresAt = new Date();
+            expiresAt.setDate(expiresAt.getDate() + 7);
+            // source hardcoded 1
 
-            res.cookie("kilitSistemi_token", accessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
-            res.cookie("kilitSistemi_refreshToken", refreshToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+            // Upsert Token and ensure isRevoked is false for new login
+            const insertTokenQuery = "INSERT INTO refresh_tokens (token, userID, expires_at, isRevoked) VALUES (?, ?, ?, 0) ON DUPLICATE KEY UPDATE token = VALUES(token), expires_at = VALUES(expires_at), isRevoked = 0";
 
-            return response(res, 200, true, "Login successful.", {
-                id: user.userID,
-                email: user.email,
-                fullName: user.fullName,
-                accessToken,
-                refreshToken
+            con.query(insertTokenQuery, [refreshToken, user.userID, expiresAt], (errToken) => {
+                if (errToken) return response(res, 500, false, "Session creation failed: " + errToken.message);
+
+                res.cookie("kilitSistemi_token", accessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
+                res.cookie("kilitSistemi_refreshToken", refreshToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+
+                return response(res, 200, true, "Login successful.", {
+                    id: user.userID,
+                    email: user.email,
+                    fullName: user.fullName,
+                    accessToken,
+                    refreshToken
+                });
             });
-        });
+        }); // end bcrypt.compare
     });
 });
 
@@ -94,22 +101,27 @@ router.post("/", isAuthenticated, isHavePriv("Admin"), (req, res) => {
     }
 
     const isActive = active !== undefined ? active : true;
+    const saltRounds = 10;
 
-    con.query("INSERT INTO users (password, active) VALUES (?, ?)", [password, isActive], (err, result) => {
-        if (err) return response(res, 500, false, err.message);
+    bcrypt.hash(password, saltRounds, (hashErr, hashedPassword) => {
+        if (hashErr) return response(res, 500, false, "Password hashing failed: " + hashErr.message);
 
-        const userID = result.insertId;
+        con.query("INSERT INTO users (password, active) VALUES (?, ?)", [hashedPassword, isActive], (err, result) => {
+            if (err) return response(res, 500, false, err.message);
 
-        if (fullName || email) {
-            con.query("INSERT INTO userDetails (userID, fullName, phoneNo, email, departmentID) VALUES (?, ?, ?, ?, ?)",
-                [userID, fullName, phoneNo, email, departmentID], (errDetail) => {
-                    if (errDetail) return response(res, 500, false, "User created but details failed: " + errDetail.message);
-                    return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
-                });
-        } else {
-            return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
-        }
-    });
+            const userID = result.insertId;
+
+            if (fullName || email) {
+                con.query("INSERT INTO userDetails (userID, fullName, phoneNo, email, departmentID) VALUES (?, ?, ?, ?, ?)",
+                    [userID, fullName, phoneNo, email, departmentID], (errDetail) => {
+                        if (errDetail) return response(res, 500, false, "User created but details failed: " + errDetail.message);
+                        return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+                    });
+            } else {
+                return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+            }
+        });
+    }); // end bcrypt.hash
 });
 
 // Get All Users (Admin only)
