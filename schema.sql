@@ -48,15 +48,16 @@ CREATE TABLE IF NOT EXISTS lesson_groups (
     lessonGroupID INT AUTO_INCREMENT PRIMARY KEY,
     lessonGroupName CHAR(255),
     lessonID INT,
+    maxNumber INT DEFAULT NULL,
     FOREIGN KEY (lessonID) REFERENCES lessons(lessonID) ON DELETE CASCADE
 );
 
-CREATE TABLE IF NOT EXISTS lesson_group_details (
-    lessonGroupID INT PRIMARY KEY,
-    maxNumber INT,
-    lessonDesc TEXT,
-    hour TIME,
-    day INT,
+CREATE TABLE IF NOT EXISTS lesson_group_hours (
+    hourID INT AUTO_INCREMENT PRIMARY KEY,
+    lessonGroupID INT NOT NULL,
+    hour TIME NOT NULL,
+    day INT NOT NULL,
+    room VARCHAR(255),
     FOREIGN KEY (lessonGroupID) REFERENCES lesson_groups(lessonGroupID) ON DELETE CASCADE
 );
 

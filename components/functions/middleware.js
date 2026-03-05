@@ -4,7 +4,7 @@ const con = require("../models/db");
 const { response } = require("./utils"); // Assuming circular dependency is fine or structure allows
 
 const isAuthenticated = (req, res, next) => {
-    let accessToken = req.cookies?.kilitSistemi_token || req.headers["authorization"]?.split(" ")[1];
+    let accessToken = req.cookies?.accessToken || req.headers["authorization"]?.split(" ")[1];
 
     if (!accessToken) {
         return response(res, 401, false, "No token provided.");
@@ -14,7 +14,7 @@ const isAuthenticated = (req, res, next) => {
         if (err) {
             if (err.name === "TokenExpiredError") {
                 // Handle Auto-Refresh
-                const refreshToken = req.cookies?.kilitSistemi_refreshToken;
+                const refreshToken = req.cookies?.refreshToken;
 
                 if (!refreshToken) {
                     return response(res, 401, false, "Access token expired and no refresh token provided.");
@@ -47,7 +47,7 @@ const isAuthenticated = (req, res, next) => {
                             );
 
                             // Set New Cookie/Header
-                            res.cookie("kilitSistemi_token", newAccessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
+                            res.cookie("accessToken", newAccessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
                             res.setHeader("Authorization", `Bearer ${newAccessToken}`);
 
                             req.user = jwt.decode(newAccessToken); // Attach new decoded user

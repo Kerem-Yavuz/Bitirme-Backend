@@ -62,8 +62,8 @@ router.post("/login", (req, res) => {
             con.query(insertTokenQuery, [refreshToken, user.userID, expiresAt], (errToken) => {
                 if (errToken) return response(res, 500, false, "Session creation failed: " + errToken.message);
 
-                res.cookie("kilitSistemi_token", accessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
-                res.cookie("kilitSistemi_refreshToken", refreshToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
+                res.cookie("accessToken", accessToken, { httpOnly: true, maxAge: 15 * 60 * 1000 });
+                res.cookie("refreshToken", refreshToken, { httpOnly: true, maxAge: 7 * 24 * 60 * 60 * 1000 });
 
                 return response(res, 200, true, "Login successful.", {
                     id: user.userID,
@@ -87,14 +87,14 @@ router.post("/logout", isAuthenticated, (req, res) => {
         if (err) console.error("Logout revoke failed:", err); // Log but don't fail response
     });
 
-    res.clearCookie("kilitSistemi_token");
-    res.clearCookie("kilitSistemi_refreshToken");
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
     return response(res, 200, true, "Logged out successfully.");
 });
 
 // Create User (Admin only)
-router.post("/", (req, res) => {
-    const { password, active, fullName, phoneNo, email, departmentID } = req.body;
+router.post("/", isAuthenticated, isHavePriv("Admin"), (req, res) => {
+    const { password, active, fullName, phoneNo, email, departmentID, privileges } = req.body;
 
     if (!password) {
         return response(res, 400, false, "Password is required.");
@@ -111,14 +111,39 @@ router.post("/", (req, res) => {
 
             const userID = result.insertId;
 
+            const afterDetails = () => {
+                // Assign privileges if provided
+                if (privileges && Array.isArray(privileges) && privileges.length > 0) {
+                    const privQuery = "SELECT privilegeID, privilegeName FROM privileges WHERE privilegeName IN (?)";
+                    con.query(privQuery, [privileges], (privErr, privResults) => {
+                        if (privErr) {
+                            return response(res, 201, true, "User created but privileges failed: " + privErr.message, { id: userID });
+                        }
+                        if (privResults.length > 0) {
+                            const values = privResults.map(p => [userID, p.privilegeID]);
+                            con.query("INSERT INTO user_privileges (userID, privID) VALUES ?", [values], (insertErr) => {
+                                if (insertErr) {
+                                    return response(res, 201, true, "User created but privilege assignment failed: " + insertErr.message, { id: userID });
+                                }
+                                return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+                            });
+                        } else {
+                            return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+                        }
+                    });
+                } else {
+                    return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+                }
+            };
+
             if (fullName || email) {
                 con.query("INSERT INTO userDetails (userID, fullName, phoneNo, email, departmentID) VALUES (?, ?, ?, ?, ?)",
                     [userID, fullName, phoneNo, email, departmentID], (errDetail) => {
                         if (errDetail) return response(res, 500, false, "User created but details failed: " + errDetail.message);
-                        return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+                        afterDetails();
                     });
             } else {
-                return response(res, 201, true, "User created successfully.", { id: userID, ...req.body });
+                afterDetails();
             }
         });
     }); // end bcrypt.hash
@@ -155,6 +180,81 @@ router.get("/:id", isAuthenticated, isHavePriv(), (req, res) => {
             userData.privileges = privResult.map(r => r.privilegeName);
             return response(res, 200, true, "User retrieved.", userData);
         });
+    });
+});
+
+// Update User (Admin only)
+router.put("/:id", isAuthenticated, isHavePriv("Admin"), (req, res) => {
+    const id = req.params.id;
+    const { fullName, phoneNo, email, departmentID, active, privileges } = req.body;
+
+    // Update active status
+    if (active !== undefined) {
+        con.query("UPDATE users SET active = ? WHERE userID = ?", [active, id], (err) => {
+            if (err) console.error("Active update failed:", err);
+        });
+    }
+
+    // Update userDetails
+    con.query(
+        "UPDATE userDetails SET fullName = ?, phoneNo = ?, email = ?, departmentID = ? WHERE userID = ?",
+        [fullName, phoneNo, email, departmentID, id],
+        (err) => {
+            if (err) {
+                // If no row exists, insert
+                if (err.message.includes("0 rows")) {
+                    con.query(
+                        "INSERT INTO userDetails (userID, fullName, phoneNo, email, departmentID) VALUES (?, ?, ?, ?, ?)",
+                        [id, fullName, phoneNo, email, departmentID],
+                        (insertErr) => {
+                            if (insertErr) return response(res, 500, false, insertErr.message);
+                        }
+                    );
+                } else {
+                    return response(res, 500, false, err.message);
+                }
+            }
+
+            // Update privileges if provided
+            if (privileges && Array.isArray(privileges)) {
+                // Delete existing privileges
+                con.query("DELETE FROM user_privileges WHERE userID = ?", [id], (delErr) => {
+                    if (delErr) return response(res, 500, false, "Privilege update failed: " + delErr.message);
+
+                    if (privileges.length === 0) {
+                        return response(res, 200, true, "User updated successfully.");
+                    }
+
+                    // Insert new privileges
+                    const privQuery = "SELECT privilegeID FROM privileges WHERE privilegeName IN (?)";
+                    con.query(privQuery, [privileges], (privErr, privResults) => {
+                        if (privErr) return response(res, 500, false, "Privilege lookup failed: " + privErr.message);
+
+                        if (privResults.length > 0) {
+                            const values = privResults.map(p => [id, p.privilegeID]);
+                            con.query("INSERT INTO user_privileges (userID, privID) VALUES ?", [values], (insertErr) => {
+                                if (insertErr) return response(res, 500, false, "Privilege insert failed: " + insertErr.message);
+                                return response(res, 200, true, "User updated successfully.");
+                            });
+                        } else {
+                            return response(res, 200, true, "User updated successfully.");
+                        }
+                    });
+                });
+            } else {
+                return response(res, 200, true, "User updated successfully.");
+            }
+        }
+    );
+});
+
+// Delete User (Admin only)
+router.delete("/:id", isAuthenticated, isHavePriv("Admin"), (req, res) => {
+    const id = req.params.id;
+    con.query("DELETE FROM users WHERE userID = ?", [id], (err, result) => {
+        if (err) return response(res, 500, false, err.message);
+        if (result.affectedRows === 0) return response(res, 404, false, "User not found.");
+        return response(res, 200, true, "User deleted successfully.");
     });
 });
 

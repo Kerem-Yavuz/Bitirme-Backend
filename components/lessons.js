@@ -18,12 +18,29 @@ router.post("/", isAuthenticated, isHavePriv("Admin"), (req, res) => {
         });
 });
 
+// Get My Teaching Lessons (Teacher only)
+router.get("/my-teaching", isAuthenticated, isHavePriv("Teacher"), (req, res) => {
+    const teacherID = req.user.id;
+
+    const query = `
+        SELECT l.*, d.departmentName 
+        FROM lessons l 
+        LEFT JOIN departments d ON l.departmentID = d.departmentID 
+        WHERE l.lessonTeacherID = ?
+        ORDER BY l.semesterNo, l.lessonName
+    `;
+
+    con.query(query, [teacherID], (err, result) => {
+        if (err) return response(res, 500, false, err.message);
+        return response(res, 200, true, "My teaching lessons.", result);
+    });
+});
+
 // Get Lessons (Filtered by Semester & Department)
 router.get("/", isAuthenticated, (req, res) => {
     const { semesterNo, departmentID } = req.query;
     const userID = req.user.id;
 
-    // Filter logic...
     const getUserDeptQuery = "SELECT departmentID FROM userDetails WHERE userID = ?";
 
     con.query(getUserDeptQuery, [userID], (err, userRes) => {
