@@ -4,10 +4,6 @@ const con = require("../models/db");
 const { response } = require("./utils"); // Assuming circular dependency is fine or structure allows
 
 const isAuthenticated = (req, res, next) => {
-    // BYPASS FOR LOCAL TESTING WITHOUT DB
-    req.user = { id: 2, email: 'ahmet@bitirme.com', fullName: 'Ahmet Yılmaz (Bypass)' };
-    return next();
-
     let accessToken = req.cookies?.accessToken || req.headers["authorization"]?.split(" ")[1];
 
     if (!accessToken) {
