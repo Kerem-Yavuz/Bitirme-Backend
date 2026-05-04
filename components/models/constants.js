@@ -19,5 +19,7 @@ module.exports = {
     dbName: process.env.DB_NAME || "bitirme",
     PORT: process.env.PORT || 8001,
     ACCESS_JWT_SECRET,
-    REFRESH_JWT_SECRET
+    REFRESH_JWT_SECRET,
+    RAG_API_URL: process.env.RAG_API_URL || "http://172.18.2.251:31005",
+    INTERNAL_BACKEND_URL: process.env.INTERNAL_BACKEND_URL || `http://localhost:${process.env.PORT || 8001}/api`
 };

@@ -2,10 +2,7 @@ const express = require("express");
 const router = express.Router();
 const axios = require("axios");
 const { isAuthenticated } = require("./functions/middleware");
-
-// ── Configuration ──
-const RAG_API_URL = process.env.RAG_API_URL || "http://localhost:5000";
-const BACKEND_URL = `http://localhost:${process.env.PORT || 8001}/api`;
+const { RAG_API_URL, INTERNAL_BACKEND_URL } = require("./models/constants");
 
 // ── Keyword-based quota detection ──
 const QUOTA_KEYWORDS = /kontenjan|kapasite|doluluk|quota|kişi kayıtlı|yer var mı|dolu mu|boş.{0,10}yer|kayıtlı.{0,10}kişi|kapasitesi/i;
@@ -20,7 +17,7 @@ async function callInternalAPI(path, cookies, method = "get") {
 
     const res = await axios({
         method,
-        url: `${BACKEND_URL}${path}`,
+        url: `${INTERNAL_BACKEND_URL}${path}`,
         headers: { Cookie: cookieHeader },
         timeout: 8000
     });
@@ -124,7 +121,7 @@ async function fetchQuotaContext(question, cookies) {
 }
 
 // -------------------------------------------------------------------
-// POST /api/ai/ask — Delegates to specialized AI service
+// POST /api/ai/ask — Delegates to specialized AI service with STREAMING
 // -------------------------------------------------------------------
 router.post("/ask", isAuthenticated, async (req, res) => {
     const { question } = req.body;
@@ -133,8 +130,13 @@ router.post("/ask", isAuthenticated, async (req, res) => {
         return res.status(400).json({ success: false, message: "Soru boş olamaz." });
     }
 
+    // Set headers for streaming (SSE)
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+
     try {
-        // ── Step 1: Fetch dynamic context from Database ──
+        // ── Step 1: Fetch dynamic context ──
         const needsQuota = QUOTA_KEYWORDS.test(question);
         const [studentContext, quotaContext] = await Promise.all([
             fetchStudentContext(req.user.id, req.cookies),
@@ -143,30 +145,39 @@ router.post("/ask", isAuthenticated, async (req, res) => {
 
         const externalContext = [studentContext, quotaContext].filter(Boolean).join("\n\n");
 
-        // ── Step 2: Call the specialized AI service ──
+        // ── Step 2: Call the specialized AI service (Request Stream) ──
         const aiRes = await axios.post(
             `${RAG_API_URL}/api/ask`,
             { 
                 question, 
                 external_context: externalContext,
-                top_k: 5 
+                top_k: 5,
+                stream: true 
             },
-            { timeout: 60000 }
+            { 
+                timeout: 60000,
+                responseType: 'stream' 
+            }
         );
 
-        // ── Step 3: Return the answer ──
-        // (Note: Yapay-Zeka returns full JSON, so we send it back as JSON now)
-        res.json({
-            success: true,
-            ...aiRes.data
+        // ── Step 3: Pipe the AI stream to our client ──
+        aiRes.data.on('data', (chunk) => {
+            res.write(chunk);
+        });
+
+        aiRes.data.on('end', () => {
+            res.end();
+        });
+
+        aiRes.data.on('error', (err) => {
+            console.error("Stream Error:", err.message);
+            res.end();
         });
 
     } catch (error) {
-        console.error("AI Bridge Error:", error.response?.data || error.message);
-        res.status(500).json({
-            success: false,
-            message: "Yapay zeka sunucusuyla iletişim kurulamadı."
-        });
+        console.error("AI Bridge Error:", error.message);
+        res.write(JSON.stringify({ success: false, message: "Yapay zeka sunucusuyla iletişim kurulamadı." }));
+        res.end();
     }
 });
 

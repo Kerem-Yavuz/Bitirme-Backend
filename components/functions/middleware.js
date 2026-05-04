@@ -46,15 +46,16 @@ const isAuthenticated = (req, res, next) => {
                                 { expiresIn: "15m" }
                             );
 
-                            // Set New Cookie/Header
+                            // Set New Cookie
                             res.cookie("accessToken", newAccessToken, {
                                 httpOnly: true,
-                                secure: process.env.NODE_ENV === 'production',
+                                secure: false, // Yerel ortamda çalışması için false yapıldı
                                 sameSite: 'Lax',
+                                path: '/',
                                 maxAge: 15 * 60 * 1000
                             });
 
-                            req.user = jwt.decode(newAccessToken); // Attach new decoded user
+                            req.user = jwt.decode(newAccessToken); 
                             next();
                         });
                     });

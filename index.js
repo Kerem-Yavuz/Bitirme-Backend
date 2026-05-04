@@ -15,12 +15,11 @@ const logger = pino({ level: process.env.LOG_LEVEL || "info" });
 app.use(pinoHttp({ logger }));
 
 const corsOptions = {
-    //origin: "*",
-    //Local'de çalıştırırken sorun çıktığı için alttaki kodu kullanıyorum
-
-    origin: "http://localhost:5173",
+    origin: function (origin, callback) {
+        // Gelen tüm origin'lere (localhost:5173, 5174 vb.) izin ver
+        callback(null, true);
+    },
     credentials: true
-
 };
 
 app.use(cors(corsOptions));

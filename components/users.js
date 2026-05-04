@@ -64,20 +64,26 @@ router.post("/login", (req, res) => {
 
                 const cookieOptions = {
                     httpOnly: true,
-                    secure: process.env.NODE_ENV === 'production',
-                    sameSite: 'Lax'
+                    secure: false, // Yerel ortamda çalışması için false yapıldı
+                    sameSite: 'Lax',
+                    path: '/' // Tüm uygulama için geçerli
                 };
                 res.cookie("accessToken", accessToken, { ...cookieOptions, maxAge: 15 * 60 * 1000 });
                 res.cookie("refreshToken", refreshToken, { ...cookieOptions, maxAge: 7 * 24 * 60 * 60 * 1000 });
 
-                return response(res, 200, true, "Login successful.", {
-                    id: user.userID,
-                    email: user.email,
-                    fullName: user.fullName,
-                    token: accessToken,
-                    refreshToken: refreshToken
+                // Yetkileri çek ve cevaba ekle
+                con.query("SELECT p.privilegeName FROM user_privileges up JOIN privileges p ON up.privID = p.privilegeID WHERE up.userID = ?", [user.userID], (errPrivs, privResult) => {
+                    const privileges = privResult ? privResult.map(r => r.privilegeName) : [];
+                    
+                    return response(res, 200, true, "Login successful.", {
+                        id: user.userID,
+                        email: user.email,
+                        fullName: user.fullName,
+                        privileges: privileges
+                        // Token'lar artık sadece cookie içinde
+                    });
                 });
-            });
+            }); // end con.query insertToken
         }); // end bcrypt.compare
     });
 });
