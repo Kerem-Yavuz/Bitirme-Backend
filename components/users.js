@@ -73,10 +73,49 @@ router.post("/login", (req, res) => {
                 return response(res, 200, true, "Login successful.", {
                     id: user.userID,
                     email: user.email,
-                    fullName: user.fullName
+                    fullName: user.fullName,
+                    token: accessToken,
+                    refreshToken: refreshToken
                 });
             });
         }); // end bcrypt.compare
+    });
+});
+
+// Refresh Token Endpoint
+router.post("/refresh", (req, res) => {
+    const { refreshToken } = req.body;
+
+    if (!refreshToken) {
+        return response(res, 400, false, "Refresh token is required.");
+    }
+
+    jwt.verify(refreshToken, REFRESH_JWT_SECRET, (err, decoded) => {
+        if (err) return response(res, 401, false, "Invalid or expired refresh token.");
+
+        // Check DB for token validity
+        const query = "SELECT * FROM refresh_tokens WHERE userID = ? AND token = ? AND isRevoked = 0";
+        con.query(query, [decoded.id, refreshToken], (dbErr, results) => {
+            if (dbErr || results.length === 0) {
+                return response(res, 401, false, "Refresh token revoked or not found.");
+            }
+
+            // Generate new Access Token
+            con.query("SELECT u.userID, ud.email, ud.fullName FROM users u LEFT JOIN userDetails ud ON u.userID = ud.userID WHERE u.userID = ?", [decoded.id], (uErr, uRes) => {
+                if (uErr || uRes.length === 0) return response(res, 401, false, "User not found.");
+
+                const user = uRes[0];
+                const newAccessToken = jwt.sign(
+                    { id: user.userID, email: user.email, fullName: user.fullName },
+                    ACCESS_JWT_SECRET,
+                    { expiresIn: "15m" }
+                );
+
+                return response(res, 200, true, "Token refreshed.", {
+                    token: newAccessToken
+                });
+            });
+        });
     });
 });
 
