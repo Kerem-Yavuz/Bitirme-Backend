@@ -9,6 +9,7 @@ const rateLimit = require("express-rate-limit");
 require("dotenv").config();
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Logger: logs on response end for every HTTP request
 const logger = pino({ level: process.env.LOG_LEVEL || "info" });

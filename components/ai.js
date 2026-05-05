@@ -132,8 +132,9 @@ router.post("/ask", isAuthenticated, async (req, res) => {
 
     // Set headers for streaming (SSE)
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering for Nginx
 
     try {
         // ── Step 1: Fetch dynamic context ──
@@ -146,6 +147,9 @@ router.post("/ask", isAuthenticated, async (req, res) => {
         const externalContext = [studentContext, quotaContext].filter(Boolean).join("\n\n");
 
         // ── Step 2: Call the specialized AI service (Request Stream) ──
+        console.log(`[AI] Requesting stream for: "${question}"`);
+        const startTime = Date.now();
+        
         const aiRes = await axios.post(
             `${RAG_API_URL}/api/ask`,
             { 
@@ -159,6 +163,7 @@ router.post("/ask", isAuthenticated, async (req, res) => {
                 responseType: 'stream' 
             }
         );
+        console.log(`[AI] Stream started in ${Date.now() - startTime}ms`);
 
         // ── Step 3: Pipe the AI stream to our client ──
         aiRes.data.on('data', (chunk) => {
