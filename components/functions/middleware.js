@@ -5,68 +5,67 @@ const { response } = require("./utils"); // Assuming circular dependency is fine
 
 const isAuthenticated = (req, res, next) => {
     let accessToken = req.cookies?.accessToken || req.headers["authorization"]?.split(" ")[1];
+    const refreshToken = req.cookies?.refreshToken;
 
-    if (!accessToken) {
+    if (accessToken) {
+        jwt.verify(accessToken, ACCESS_JWT_SECRET, (err, decoded) => {
+            if (err) {
+                if (err.name === "TokenExpiredError") {
+                    return handleAutoRefresh(refreshToken, req, res, next);
+                } else {
+                    return response(res, 401, false, "Unauthorized! Invalid Token.");
+                }
+            } else {
+                req.user = decoded;
+                next();
+            }
+        });
+    } else if (refreshToken) {
+        return handleAutoRefresh(refreshToken, req, res, next);
+    } else {
         return response(res, 401, false, "No token provided.");
     }
+};
 
-    jwt.verify(accessToken, ACCESS_JWT_SECRET, (err, decoded) => {
-        if (err) {
-            if (err.name === "TokenExpiredError") {
-                // Handle Auto-Refresh
-                const refreshToken = req.cookies?.refreshToken;
+const handleAutoRefresh = (refreshToken, req, res, next) => {
+    if (!refreshToken) {
+        return response(res, 401, false, "Session expired and no refresh token available.");
+    }
 
-                if (!refreshToken) {
-                    return response(res, 401, false, "Access token expired and no refresh token provided.");
-                }
-
-                jwt.verify(refreshToken, REFRESH_JWT_SECRET, (refreshErr, refreshDecoded) => {
-                    if (refreshErr) {
-                        return response(res, 401, false, "Refresh token invalid or expired.");
-                    }
-
-                    // Check DB
-                    const query = "SELECT * FROM refresh_tokens WHERE userID = ? AND token = ? AND isRevoked = 0";
-                    con.query(query, [refreshDecoded.id, refreshToken], (dbErr, results) => {
-                        if (dbErr || results.length === 0) {
-                            return response(res, 401, false, "Refresh token revoked or not found.");
-                        }
-
-                        // Generate New Access Token
-                        // We need user details (email, fullName) which might not be in refresh token (usually just ID).
-                        // Let's fetch user details.
-                        con.query("SELECT u.userID, ud.email, ud.fullName FROM users u LEFT JOIN userDetails ud ON u.userID = ud.userID WHERE u.userID = ?", [refreshDecoded.id], (uErr, uRes) => {
-                            if (uErr || uRes.length === 0) {
-                                return response(res, 401, false, "User not found during refresh.");
-                            }
-                            const user = uRes[0];
-                            const newAccessToken = jwt.sign(
-                                { id: user.userID, email: user.email, fullName: user.fullName },
-                                ACCESS_JWT_SECRET,
-                                { expiresIn: "15m" }
-                            );
-
-                            // Set New Cookie
-                            res.cookie("accessToken", newAccessToken, {
-                                httpOnly: true,
-                                secure: false, // Yerel ortamda çalışması için false yapıldı
-                                sameSite: 'Lax',
-                                path: '/',
-                                maxAge: 15 * 60 * 1000
-                            });
-
-                            req.user = jwt.decode(newAccessToken); 
-                            next();
-                        });
-                    });
-                });
-            } else {
-                return response(res, 401, false, "Unauthorized! Invalid Token.");
-            }
-        } else {
-            req.user = decoded;
-            next();
+    jwt.verify(refreshToken, REFRESH_JWT_SECRET, (refreshErr, refreshDecoded) => {
+        if (refreshErr) {
+            return response(res, 401, false, "Refresh token invalid or expired.");
         }
+
+        const query = "SELECT * FROM refresh_tokens WHERE userID = ? AND token = ? AND isRevoked = 0";
+        con.query(query, [refreshDecoded.id, refreshToken], (dbErr, results) => {
+            if (dbErr || results.length === 0) {
+                return response(res, 401, false, "Refresh token revoked or not found.");
+            }
+
+            con.query("SELECT u.userID, ud.email, ud.fullName FROM users u LEFT JOIN userDetails ud ON u.userID = ud.userID WHERE u.userID = ?", [refreshDecoded.id], (uErr, uRes) => {
+                if (uErr || uRes.length === 0) {
+                    return response(res, 401, false, "User not found during refresh.");
+                }
+                const user = uRes[0];
+                const newAccessToken = jwt.sign(
+                    { id: user.userID, email: user.email, fullName: user.fullName },
+                    ACCESS_JWT_SECRET,
+                    { expiresIn: "15m" }
+                );
+
+                res.cookie("accessToken", newAccessToken, {
+                    httpOnly: true,
+                    secure: false, 
+                    sameSite: 'Lax',
+                    path: '/',
+                    maxAge: 15 * 60 * 1000
+                });
+
+                req.user = jwt.decode(newAccessToken); 
+                next();
+            });
+        });
     });
 };
 
