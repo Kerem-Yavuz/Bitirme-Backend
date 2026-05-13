@@ -38,12 +38,11 @@ async function fetchStudentContext(userID, cookies) {
 
         // Department name
         if (userRes?.data?.departmentID) {
-            try {
-                const deptRes = await callInternalAPI(
-                    `/departments/${userRes.data.departmentID}`, cookies
-                );
-                context.department = deptRes?.data?.departmentName;
-            } catch { /* non-fatal */ }
+            // Fetch department concurrently if needed (already mostly parallelized in Promise.all below)
+            const deptRes = await callInternalAPI(
+                `/departments/${userRes.data.departmentID}`, cookies
+            ).catch(() => null);
+            context.department = deptRes?.data?.departmentName;
         }
 
         // Parse enrolled courses by grade status
@@ -94,23 +93,25 @@ async function fetchQuotaContext(question, cookies) {
 
         if (matched.length === 0) return null;
 
+        const lessonPromises = matched.slice(0, 3).map(lesson => 
+            callInternalAPI(`/lessonGroups?lessonID=${lesson.lessonID}`, cookies)
+                .then(res => ({ lesson, groups: res?.data || [] }))
+                .catch(() => ({ lesson, groups: [] }))
+        );
+
+        const results = await Promise.all(lessonPromises);
         const allGroups = [];
-        for (const lesson of matched.slice(0, 3)) {
-            try {
-                const groupsRes = await callInternalAPI(
-                    `/lessonGroups?lessonID=${lesson.lessonID}`, cookies
+
+        for (const { lesson, groups } of results) {
+            groups.forEach(g => {
+                const hours = (g.hours || [])
+                    .map(h => `${h.day}. gün ${h.hour} (${h.room || "?"})`)
+                    .join(", ");
+                const quota = g.maxNumber != null ? g.maxNumber : "Sınırsız";
+                allGroups.push(
+                    `Ders: ${lesson.lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
                 );
-                const groups = groupsRes?.data || [];
-                groups.forEach(g => {
-                    const hours = (g.hours || [])
-                        .map(h => `${h.day}. gün ${h.hour} (${h.room || "?"})`)
-                        .join(", ");
-                    const quota = g.maxNumber != null ? g.maxNumber : "Sınırsız";
-                    allGroups.push(
-                        `Ders: ${lesson.lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
-                    );
-                });
-            } catch { /* skip */ }
+            });
         }
 
         return allGroups.length > 0 ? `KONTENJAN BİLGİSİ:\n${allGroups.join("\n")}` : null;
@@ -136,19 +137,27 @@ router.post("/ask", isAuthenticated, async (req, res) => {
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no'); // Disable buffering for Nginx
 
+    const requestStartTime = Date.now();
     try {
         // ── Step 1: Fetch dynamic context ──
+        const contextStartTime = Date.now();
         const needsQuota = QUOTA_KEYWORDS.test(question);
+        
+        console.log(`[AI-DEBUG] Starting context fetch for user ${req.user.id}. Needs quota: ${needsQuota}`);
+
         const [studentContext, quotaContext] = await Promise.all([
             fetchStudentContext(req.user.id, req.cookies),
             needsQuota ? fetchQuotaContext(question, req.cookies) : Promise.resolve(null)
         ]);
 
         const externalContext = [studentContext, quotaContext].filter(Boolean).join("\n\n");
+        const contextDuration = Date.now() - contextStartTime;
+        
+        console.log(`[AI-DEBUG] Context fetch completed in ${contextDuration}ms. Length: ${externalContext.length} chars`);
 
         // ── Step 2: Call the specialized AI service (Request Stream) ──
-        console.log(`[AI] Requesting stream for: "${question}"`);
-        const startTime = Date.now();
+        console.log(`[AI] Requesting stream for: "${question.substring(0, 50)}${question.length > 50 ? '...' : ''}"`);
+        const aiCallStartTime = Date.now();
         
         const aiRes = await axios.post(
             `${RAG_API_URL}/api/ask`,
@@ -163,25 +172,40 @@ router.post("/ask", isAuthenticated, async (req, res) => {
                 responseType: 'stream' 
             }
         );
-        console.log(`[AI] Stream started in ${Date.now() - startTime}ms`);
+        console.log(`[AI] Stream connection established in ${Date.now() - aiCallStartTime}ms`);
 
         // ── Step 3: Pipe the AI stream to our client ──
+        let totalChunks = 0;
+        let firstTokenTime = null;
+
         aiRes.data.on('data', (chunk) => {
+            if (!firstTokenTime) {
+                firstTokenTime = Date.now();
+                console.log(`[AI-DEBUG] Time to first token: ${firstTokenTime - aiCallStartTime}ms`);
+            }
+            totalChunks++;
             res.write(chunk);
         });
 
         aiRes.data.on('end', () => {
+            const totalDuration = Date.now() - requestStartTime;
+            console.log(`[AI-DEBUG] Stream finished. Total chunks: ${totalChunks}, Total duration: ${totalDuration}ms`);
             res.end();
         });
 
         aiRes.data.on('error', (err) => {
-            console.error("Stream Error:", err.message);
+            console.error(`[AI-ERROR] Stream Error after ${Date.now() - requestStartTime}ms:`, err.message);
             res.end();
         });
 
     } catch (error) {
-        console.error("AI Bridge Error:", error.message);
-        res.write(JSON.stringify({ success: false, message: "Yapay zeka sunucusuyla iletişim kurulamadı." }));
+        const errorDuration = Date.now() - requestStartTime;
+        console.error(`[AI-ERROR] Bridge failed after ${errorDuration}ms:`, error.message);
+        if (error.response) {
+            console.error(`[AI-ERROR] Response data:`, error.response.data);
+            console.error(`[AI-ERROR] Status:`, error.response.status);
+        }
+        res.write(JSON.stringify({ success: false, message: "Yapay zeka sunucusuyla iletişim kurulamadı.", error: error.message }));
         res.end();
     }
 });
