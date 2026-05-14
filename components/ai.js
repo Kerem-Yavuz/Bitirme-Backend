@@ -4,8 +4,7 @@ const axios = require("axios");
 const { isAuthenticated } = require("./functions/middleware");
 const { RAG_API_URL, INTERNAL_BACKEND_URL } = require("./models/constants");
 
-// ── Keyword-based quota detection ──
-const QUOTA_KEYWORDS = /kontenjan|kapasite|doluluk|quota|kişi kayıtlı|yer var mı|dolu mu|boş.{0,10}yer|kayıtlı.{0,10}kişi|kapasitesi/i;
+
 
 // -------------------------------------------------------------------
 // Helper: internal API call (forwards cookies for auth)
@@ -55,7 +54,12 @@ async function fetchStudentContext(userID, cookies) {
 
         context.currentCourses = groups
             .filter(g => !g.grade || g.grade.toUpperCase() === "PEND")
-            .map(g => `${g.lessonName} - ${g.lessonGroupName}`);
+            .map(g => {
+                const hoursStr = (g.hours || [])
+                    .map(h => `${h.day}. gün ${h.hour}`)
+                    .join(", ");
+                return `${g.lessonName} - ${g.lessonGroupName}${hoursStr ? ` (Saatler: ${hoursStr})` : ""}`;
+            });
 
         context.failedCourses = groups
             .filter(g => g.grade && failGrades.includes(g.grade.toUpperCase()))
@@ -75,48 +79,45 @@ async function fetchStudentContext(userID, cookies) {
 }
 
 // -------------------------------------------------------------------
-// Keyword-based quota lookup
+// Fetch ALL available courses and quotas
 // -------------------------------------------------------------------
-async function fetchQuotaContext(question, cookies) {
+async function fetchAllCoursesContext(cookies) {
     try {
-        const lessonsRes = await callInternalAPI("/lessons", cookies);
+        const [lessonsRes, groupsRes] = await Promise.all([
+            callInternalAPI("/lessons", cookies).catch(() => null),
+            callInternalAPI("/lessonGroups", cookies).catch(() => null)
+        ]);
+
         const lessons = lessonsRes?.data || [];
+        const groups = groupsRes?.data || [];
 
-        const questionLower = question.toLowerCase().replace(/ı/g, "i").replace(/ö/g, "o")
-            .replace(/ü/g, "u").replace(/ş/g, "s").replace(/ç/g, "c").replace(/ğ/g, "g");
+        if (lessons.length === 0 || groups.length === 0) return null;
 
-        const matched = lessons.filter(l => {
-            const nameLower = (l.lessonName || "").toLowerCase().replace(/ı/g, "i").replace(/ö/g, "o")
-                .replace(/ü/g, "u").replace(/ş/g, "s").replace(/ç/g, "c").replace(/ğ/g, "g");
-            return questionLower.includes(nameLower) && nameLower.length > 2;
+        // Create a map of lessonID -> lessonName
+        const lessonMap = {};
+        lessons.forEach(l => {
+            lessonMap[l.lessonID] = l.lessonName;
         });
 
-        if (matched.length === 0) return null;
-
-        const lessonPromises = matched.slice(0, 3).map(lesson => 
-            callInternalAPI(`/lessonGroups?lessonID=${lesson.lessonID}`, cookies)
-                .then(res => ({ lesson, groups: res?.data || [] }))
-                .catch(() => ({ lesson, groups: [] }))
-        );
-
-        const results = await Promise.all(lessonPromises);
         const allGroups = [];
 
-        for (const { lesson, groups } of results) {
-            groups.forEach(g => {
-                const hours = (g.hours || [])
-                    .map(h => `${h.day}. gün ${h.hour} (${h.room || "?"})`)
-                    .join(", ");
-                const quota = g.maxNumber != null ? g.maxNumber : "Sınırsız";
-                allGroups.push(
-                    `Ders: ${lesson.lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
-                );
-            });
-        }
+        groups.forEach(g => {
+            const lessonName = lessonMap[g.lessonID];
+            if (!lessonName) return; // Skip if group belongs to a lesson not in this department/list
 
-        return allGroups.length > 0 ? `KONTENJAN BİLGİSİ:\n${allGroups.join("\n")}` : null;
+            const hours = (g.hours || [])
+                .map(h => `${h.day}. gün ${h.hour} (${h.room || "?"})`)
+                .join(", ");
+            const quota = g.maxNumber != null ? g.maxNumber : "Sınırsız";
+            
+            allGroups.push(
+                `Ders: ${lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
+            );
+        });
+
+        return allGroups.length > 0 ? `BÖLÜMDEKİ AÇIK DERSLER VE KONTENJANLAR:\n${allGroups.join("\n")}` : null;
     } catch (err) {
-        console.error("Quota context fetch error:", err.message);
+        console.error("All courses context fetch error:", err.message);
         return null;
     }
 }
@@ -141,16 +142,15 @@ router.post("/ask", isAuthenticated, async (req, res) => {
     try {
         // ── Step 1: Fetch dynamic context ──
         const contextStartTime = Date.now();
-        const needsQuota = QUOTA_KEYWORDS.test(question);
         
-        console.log(`[AI-DEBUG] Starting context fetch for user ${req.user.id}. Needs quota: ${needsQuota}`);
+        console.log(`[AI-DEBUG] Starting context fetch for user ${req.user.id}.`);
 
-        const [studentContext, quotaContext] = await Promise.all([
+        const [studentContext, coursesContext] = await Promise.all([
             fetchStudentContext(req.user.id, req.cookies),
-            needsQuota ? fetchQuotaContext(question, req.cookies) : Promise.resolve(null)
+            fetchAllCoursesContext(req.cookies)
         ]);
 
-        const externalContext = [studentContext, quotaContext].filter(Boolean).join("\n\n");
+        const externalContext = [studentContext, coursesContext].filter(Boolean).join("\n\n");
         const contextDuration = Date.now() - contextStartTime;
         
         console.log(`[AI-DEBUG] Context fetch completed in ${contextDuration}ms. Length: ${externalContext.length} chars`);
