@@ -231,6 +231,42 @@ router.get("/:id", isAuthenticated, isHavePriv(), (req, res) => {
     });
 });
 
+// Get User Transcript (Admin or Self)
+router.get("/:id/transcript", isAuthenticated, isHavePriv(), (req, res) => {
+    const id = req.params.id;
+    const callerId = req.user.id;
+    const callerPrivs = req.user.privs || [];
+
+    if (callerId != id && !callerPrivs.includes("Admin")) {
+        return response(res, 403, false, "Require Admin Privilege or self access!");
+    }
+
+    const query = `
+        SELECT l.lessonID, l.lessonName, l.semesterNo, ulg.grade, lg.lessonGroupID
+        FROM user_lesson_groups ulg
+        JOIN lesson_groups lg ON ulg.lessonGroupID = lg.lessonGroupID
+        JOIN lessons l ON lg.lessonID = l.lessonID
+        WHERE ulg.userID = ?
+        ORDER BY l.semesterNo ASC, l.lessonName ASC
+    `;
+
+    con.query(query, [id], (err, results) => {
+        if (err) return response(res, 500, false, err.message);
+        
+        const grouped = results.reduce((acc, curr) => {
+            const sem = curr.semesterNo || 0;
+            if (!acc[sem]) {
+                acc[sem] = [];
+            }
+            acc[sem].push(curr);
+            return acc;
+        }, {});
+        
+        return response(res, 200, true, "Transcript retrieved.", grouped);
+    });
+});
+
+
 // Update User (Admin only)
 router.put("/:id", isAuthenticated, isHavePriv("Admin"), (req, res) => {
     const id = req.params.id;
