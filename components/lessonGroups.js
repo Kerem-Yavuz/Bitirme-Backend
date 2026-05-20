@@ -227,4 +227,43 @@ router.put("/:groupId/students/:userId/grade", isAuthenticated, isHavePriv("Teac
     });
 });
 
+// Leave/Drop a Group (Student)
+router.delete("/drop/:lessonGroupID", isAuthenticated, (req, res) => {
+    const { lessonGroupID } = req.params;
+    const userID = req.user.id;
+
+    if (!lessonGroupID) {
+        return response(res, 400, false, "Lesson Group ID is required.");
+    }
+
+    // Check if the student is registered and check their grade
+    con.query(
+        "SELECT grade FROM user_lesson_groups WHERE lessonGroupID = ? AND userID = ?",
+        [lessonGroupID, userID],
+        (err, results) => {
+            if (err) return response(res, 500, false, err.message);
+            if (results.length === 0) {
+                return response(res, 404, false, "Ders kaydı bulunamadı.");
+            }
+
+            const grade = results[0].grade;
+            // A grade is considered determined if it is not NULL, not empty, and not 'PEND' (case-insensitive)
+            if (grade && grade.trim() !== "" && grade.trim().toUpperCase() !== "PEND") {
+                return response(res, 400, false, "Harf notu belirlenmiş dersler bırakılamaz.");
+            }
+
+            // Allowed to drop
+            con.query(
+                "DELETE FROM user_lesson_groups WHERE lessonGroupID = ? AND userID = ?",
+                [lessonGroupID, userID],
+                (err2, result) => {
+                    if (err2) return response(res, 500, false, err2.message);
+                    return response(res, 200, true, "Dersten başarıyla çıkıldı.");
+                }
+            );
+        }
+    );
+});
+
 module.exports = router;
+
