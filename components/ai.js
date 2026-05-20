@@ -78,6 +78,14 @@ async function fetchStudentContext(userID, cookies) {
     }
 }
 
+// Helper: Detect semester type dynamically from current date
+function getCurrentSemesterType() {
+    const month = new Date().getMonth() + 1; // 1-indexed (1: Jan, 12: Dec)
+    // Spring (Bahar): February (2) to July (7) inclusive
+    // Fall (Güz): August (8) to January (1) inclusive
+    return (month >= 2 && month <= 7) ? "Bahar" : "Güz";
+}
+
 // -------------------------------------------------------------------
 // Fetch ALL available courses and quotas
 // -------------------------------------------------------------------
@@ -93,17 +101,38 @@ async function fetchAllCoursesContext(cookies) {
 
         if (lessons.length === 0 || groups.length === 0) return null;
 
-        // Create a map of lessonID -> lessonName
+        const semesterType = getCurrentSemesterType();
+        const isActiveSemesterCourse = (semesterNo) => {
+            if (!semesterNo) return false;
+            if (semesterType === "Bahar") {
+                return semesterNo % 2 === 0; // Even semesters are Spring
+            } else {
+                return semesterNo % 2 !== 0; // Odd semesters are Fall
+            }
+        };
+
+        // Create a map of lessonID -> lesson object
         const lessonMap = {};
+        const activeLessons = [];
+        const passiveLessons = [];
+
         lessons.forEach(l => {
-            lessonMap[l.lessonID] = l.lessonName;
+            lessonMap[l.lessonID] = l;
+            if (isActiveSemesterCourse(l.semesterNo)) {
+                activeLessons.push(`${l.lessonName} (${l.semesterNo}. Dönem)`);
+            } else {
+                passiveLessons.push(`${l.lessonName} (${l.semesterNo}. Dönem)`);
+            }
         });
 
         const allGroups = [];
 
         groups.forEach(g => {
-            const lessonName = lessonMap[g.lessonID];
-            if (!lessonName) return; // Skip if group belongs to a lesson not in this department/list
+            const lesson = lessonMap[g.lessonID];
+            if (!lesson) return; // Skip if group belongs to a lesson not in this department/list
+
+            // Only allow active semester's courses
+            if (!isActiveSemesterCourse(lesson.semesterNo)) return;
 
             const hours = (g.hours || [])
                 .map(h => `${h.day}. gün ${h.hour} (${h.room || "?"})`)
@@ -111,16 +140,34 @@ async function fetchAllCoursesContext(cookies) {
             const quota = g.maxNumber != null ? g.maxNumber : "Sınırsız";
             
             allGroups.push(
-                `Ders: ${lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
+                `Ders: ${lesson.lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
             );
         });
 
-        return allGroups.length > 0 ? `BÖLÜMDEKİ AÇIK DERSLER VE KONTENJANLAR:\n${allGroups.join("\n")}` : null;
+        let contextParts = [];
+        contextParts.push(`ŞU ANKİ AKTİF DÖNEM: ${semesterType} Dönemi`);
+        contextParts.push(`Şu an sadece ${semesterType} dönemi dersleri alınabilir.`);
+
+        if (activeLessons.length > 0) {
+            contextParts.push(`AKTİF ${semesterType.toUpperCase()} DÖNEMİ DERSLERİ (Şu an alınabilir):\n${activeLessons.map(name => `- ${name}`).join("\n")}`);
+        }
+
+        const passiveSemesterType = semesterType === "Bahar" ? "Güz" : "Bahar";
+        if (passiveLessons.length > 0) {
+            contextParts.push(`PASİF ${passiveSemesterType.toUpperCase()} DÖNEMİ DERSLERİ (Şu an ALINAMAZ, ${passiveSemesterType} döneminde açılır):\n${passiveLessons.map(name => `- ${name}`).join("\n")}`);
+        }
+
+        if (allGroups.length > 0) {
+            contextParts.push(`ŞU AN AÇILAN AKTİF DERS GRUPLARI VE KONTENJANLAR:\n${allGroups.join("\n")}`);
+        }
+
+        return contextParts.join("\n\n");
     } catch (err) {
         console.error("All courses context fetch error:", err.message);
         return null;
     }
 }
+
 
 // -------------------------------------------------------------------
 // POST /api/ai/ask — Delegates to specialized AI service with STREAMING
