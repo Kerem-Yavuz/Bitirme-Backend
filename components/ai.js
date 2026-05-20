@@ -173,7 +173,7 @@ async function fetchAllCoursesContext(cookies) {
 // POST /api/ai/ask — Delegates to specialized AI service with STREAMING
 // -------------------------------------------------------------------
 router.post("/ask", isAuthenticated, async (req, res) => {
-    const { question } = req.body;
+    const { question, history } = req.body;
 
     if (!question || !question.trim()) {
         return res.status(400).json({ success: false, message: "Soru boş olamaz." });
@@ -212,7 +212,8 @@ router.post("/ask", isAuthenticated, async (req, res) => {
                 question, 
                 external_context: externalContext,
                 top_k: 5,
-                stream: true 
+                stream: true,
+                history: history || [],
             },
             { 
                 timeout: 60000,
