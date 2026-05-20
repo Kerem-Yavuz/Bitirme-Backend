@@ -119,9 +119,9 @@ async function fetchAllCoursesContext(cookies) {
         lessons.forEach(l => {
             lessonMap[l.lessonID] = l;
             if (isActiveSemesterCourse(l.semesterNo)) {
-                activeLessons.push(`${l.lessonName} (${l.semesterNo}. Dönem)`);
+                activeLessons.push(`${l.lessonName} (Ders ID: ${l.lessonID}, ${l.semesterNo}. Dönem)`);
             } else {
-                passiveLessons.push(`${l.lessonName} (${l.semesterNo}. Dönem)`);
+                passiveLessons.push(`${l.lessonName} (Ders ID: ${l.lessonID}, ${l.semesterNo}. Dönem)`);
             }
         });
 
@@ -140,7 +140,7 @@ async function fetchAllCoursesContext(cookies) {
             const quota = g.maxNumber != null ? g.maxNumber : "Sınırsız";
             
             allGroups.push(
-                `Ders: ${lesson.lessonName} | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
+                `Ders: ${lesson.lessonName} (Ders ID: ${lesson.lessonID}) | Grup: ${g.lessonGroupName} | Kontenjan: ${quota}${hours ? ` | Saatler: ${hours}` : ""}`
             );
         });
 
